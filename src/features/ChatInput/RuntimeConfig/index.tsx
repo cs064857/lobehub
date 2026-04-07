@@ -220,7 +220,8 @@ const RuntimeConfig = memo(() => {
         <Popover
           content={<WorkingDirectory agentId={agentId} onClose={() => setDirPopoverOpen(false)} />}
           open={dirPopoverOpen}
-          placement="bottomRight"
+          placement="bottomLeft"
+          styles={{ content: { padding: 4 } }}
           trigger="click"
           onOpenChange={setDirPopoverOpen}
         >
