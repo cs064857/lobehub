@@ -106,7 +106,7 @@ describe('TaskService', () => {
       expect(result?.agentId).toBe('agent-1');
       expect(result?.userId).toBe('user-1');
       expect(result?.createdAt).toBe('2024-01-01T00:00:00.000Z');
-      expect(result?.subtasks).toBeUndefined();
+      expect(result?.subtasks).toEqual([]);
       expect(result?.dependencies).toEqual([]);
       expect(result?.activities).toBeUndefined();
       expect(result?.workspace).toBeUndefined();

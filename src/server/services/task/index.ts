@@ -72,7 +72,8 @@ export class TaskService {
       }));
     };
 
-    const subtasks = buildSubtaskTree(task.id);
+    // Root level: always return array (empty [] when no subtasks) for consistent API shape
+    const subtasks = buildSubtaskTree(task.id) ?? [];
 
     // Resolve dependency task identifiers
     const depTaskIds = [...new Set(dependencies.map((d) => d.dependsOnId))];
