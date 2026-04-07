@@ -219,35 +219,24 @@ export class ResourceService {
     const existing = await this.getResource(id);
     if (!existing) throw new Error('Resource not found');
 
-    if (existing.sourceType === 'file') {
-      // Update file (currently only supports parentId)
-      if (updates.parentId !== undefined) {
-        await fileService.updateFile(id, { parentId: updates.parentId });
-      }
+    // Always use documentService.updateDocument for updates.
+    // The knowledge item ID is COALESCE(document.id, file.id), so for file-backed
+    // resources the ID is actually a document ID. updateDocument handles both the
+    // document record AND the associated file record's parentId, while
+    // fileService.updateFile expects a file ID and would silently miss.
+    await documentService.updateDocument({
+      content: updates.content,
+      editorData: updates.editorData ? JSON.stringify(updates.editorData) : undefined,
+      id,
+      metadata: updates.metadata,
+      parentId: updates.parentId !== undefined ? updates.parentId : undefined,
+      title: updates.title || updates.name,
+    });
 
-      // Fetch updated file
-      const updated = await fileService.getKnowledgeItem(id);
-      if (!updated) throw new Error('Failed to fetch updated file');
+    const updated = await fileService.getKnowledgeItem(id);
+    if (!updated) throw new Error('Failed to fetch updated resource');
 
-      return mapToResourceItem(updated);
-    } else {
-      // Update document
-      await documentService.updateDocument({
-        content: updates.content,
-        editorData: updates.editorData ? JSON.stringify(updates.editorData) : undefined,
-        id,
-        metadata: updates.metadata,
-        // Keep null as null (for moving to root), don't convert to undefined
-        parentId: updates.parentId !== undefined ? updates.parentId : undefined,
-        title: updates.title || updates.name,
-      });
-
-      // Fetch updated document
-      const updated = await fileService.getKnowledgeItem(id);
-      if (!updated) throw new Error('Failed to fetch updated document');
-
-      return mapToResourceItem(updated);
-    }
+    return mapToResourceItem(updated);
   }
 
   /**
