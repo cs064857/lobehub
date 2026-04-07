@@ -219,19 +219,22 @@ export class ResourceService {
     const existing = await this.getResource(id);
     if (!existing) throw new Error('Resource not found');
 
-    // Always use documentService.updateDocument for updates.
-    // The knowledge item ID is COALESCE(document.id, file.id), so for file-backed
-    // resources the ID is actually a document ID. updateDocument handles both the
-    // document record AND the associated file record's parentId, while
-    // fileService.updateFile expects a file ID and would silently miss.
-    await documentService.updateDocument({
-      content: updates.content,
-      editorData: updates.editorData ? JSON.stringify(updates.editorData) : undefined,
-      id,
-      metadata: updates.metadata,
-      parentId: updates.parentId !== undefined ? updates.parentId : undefined,
-      title: updates.title || updates.name,
-    });
+    if (existing.sourceType === 'file') {
+      await fileService.updateFile(id, {
+        metadata: updates.metadata,
+        name: updates.name ?? updates.title,
+        parentId: updates.parentId !== undefined ? updates.parentId : undefined,
+      });
+    } else {
+      await documentService.updateDocument({
+        content: updates.content,
+        editorData: updates.editorData ? JSON.stringify(updates.editorData) : undefined,
+        id,
+        metadata: updates.metadata,
+        parentId: updates.parentId !== undefined ? updates.parentId : undefined,
+        title: updates.title || updates.name,
+      });
+    }
 
     const updated = await fileService.getKnowledgeItem(id);
     if (!updated) throw new Error('Failed to fetch updated resource');

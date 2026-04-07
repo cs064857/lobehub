@@ -209,7 +209,21 @@ export class TreeActionImpl {
   moveItem = async (itemId: string, fromParent: string, toParent: string): Promise<void> => {
     const { children } = this.#get();
     const item = children[fromParent]?.find((i) => i.id === itemId);
-    if (!item) return;
+
+    if (!item) {
+      const { useFileStore } = await import('@/store/file');
+      const { resourceMap } = useFileStore.getState();
+
+      if (resourceMap.has(itemId)) {
+        await useFileStore.getState().moveResource(itemId, toParent || null);
+      } else {
+        await resourceService.moveResource(itemId, toParent || null);
+        await useFileStore.getState().refreshFileList();
+      }
+
+      void Promise.all([this.revalidate(fromParent), this.revalidate(toParent)]);
+      return;
+    }
 
     const engine = this.#getEngine();
     const tx = engine.createTransaction(`moveItem(${itemId})`);
