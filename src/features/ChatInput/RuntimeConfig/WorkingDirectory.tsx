@@ -1,8 +1,9 @@
 import { isDesktop } from '@lobechat/const';
+import { Github } from '@lobehub/icons';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { CheckIcon, FolderOpenIcon, XIcon } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { CheckIcon, FolderIcon, FolderOpenIcon, GitBranchIcon, XIcon } from 'lucide-react';
+import { memo, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { electronSystemService } from '@/services/electron/system';
@@ -11,30 +12,7 @@ import { agentByIdSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 
-const RECENT_DIRS_KEY = 'lobechat-recent-working-directories';
-const MAX_RECENT_DIRS = 5;
-
-const getRecentDirs = (): string[] => {
-  try {
-    const stored = localStorage.getItem(RECENT_DIRS_KEY);
-    return stored ? JSON.parse(stored) : [];
-  } catch {
-    return [];
-  }
-};
-
-const addRecentDir = (dir: string): string[] => {
-  const dirs = getRecentDirs().filter((d) => d !== dir);
-  const updated = [dir, ...dirs].slice(0, MAX_RECENT_DIRS);
-  localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(updated));
-  return updated;
-};
-
-const removeRecentDir = (dir: string): string[] => {
-  const updated = getRecentDirs().filter((d) => d !== dir);
-  localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(updated));
-  return updated;
-};
+import { addRecentDir, getRecentDirs, type RecentDirEntry, removeRecentDir } from './recentDirs';
 
 const styles = createStaticStyles(({ css }) => ({
   chooseFolderItem: css`
@@ -115,6 +93,14 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 }));
 
+const renderDirIcon = (repoType?: 'git' | 'github'): ReactNode => {
+  const iconStyle = { color: cssVar.colorTextTertiary, flex: 'none' as const };
+  if (repoType === 'github') return <Github size={16} style={iconStyle} />;
+  return (
+    <Icon icon={repoType === 'git' ? GitBranchIcon : FolderIcon} size={16} style={iconStyle} />
+  );
+};
+
 interface WorkingDirectoryContentProps {
   agentId: string;
   onClose?: () => void;
@@ -135,16 +121,16 @@ const WorkingDirectoryContent = memo<WorkingDirectoryContentProps>(({ agentId, o
 
   const displayDirs = useMemo(() => {
     const dirs = [...recentDirs];
-    if (effectiveDir && !dirs.includes(effectiveDir)) {
-      dirs.unshift(effectiveDir);
+    if (effectiveDir && !dirs.some((d) => d.path === effectiveDir)) {
+      dirs.unshift({ path: effectiveDir });
     }
     return dirs;
   }, [recentDirs, effectiveDir]);
 
   const selectDir = useCallback(
-    async (dir: string) => {
-      await updateAgentRuntimeEnvConfig(agentId, { workingDirectory: dir });
-      setRecentDirs(addRecentDir(dir));
+    async (entry: RecentDirEntry) => {
+      await updateAgentRuntimeEnvConfig(agentId, { workingDirectory: entry.path });
+      setRecentDirs(addRecentDir(entry));
       onClose?.();
     },
     [agentId, updateAgentRuntimeEnvConfig, onClose],
@@ -152,18 +138,18 @@ const WorkingDirectoryContent = memo<WorkingDirectoryContentProps>(({ agentId, o
 
   const handleChooseFolder = useCallback(async () => {
     if (!isDesktop) return;
-    const folder = await electronSystemService.selectFolder({
+    const result = await electronSystemService.selectFolder({
       defaultPath: effectiveDir || undefined,
       title: t('localSystem.workingDirectory.selectFolder'),
     });
-    if (folder) {
-      await selectDir(folder);
+    if (result) {
+      await selectDir({ path: result.path, repoType: result.repoType });
     }
   }, [effectiveDir, t, selectDir]);
 
-  const handleRemoveRecent = useCallback((e: React.MouseEvent, dir: string) => {
+  const handleRemoveRecent = useCallback((e: React.MouseEvent, path: string) => {
     e.stopPropagation();
-    setRecentDirs(removeRecentDir(dir));
+    setRecentDirs(removeRecentDir(path));
   }, []);
 
   const getDirName = (path: string) => path.split('/').findLast(Boolean) || path;
@@ -180,20 +166,21 @@ const WorkingDirectoryContent = memo<WorkingDirectoryContentProps>(({ agentId, o
           {t('localSystem.workingDirectory.noRecent')}
         </Flexbox>
       ) : (
-        displayDirs.map((dir) => {
-          const isActive = dir === effectiveDir;
+        displayDirs.map((entry) => {
+          const isActive = entry.path === effectiveDir;
           return (
             <Flexbox
               horizontal
               align={'center'}
               className={`${styles.dirItem} ${isActive ? styles.dirItemActive : ''}`}
               gap={8}
-              key={dir}
-              onClick={() => selectDir(dir)}
+              key={entry.path}
+              onClick={() => selectDir(entry)}
             >
+              {renderDirIcon(entry.repoType)}
               <Flexbox flex={1} style={{ minWidth: 0 }}>
-                <div className={styles.dirName}>{getDirName(dir)}</div>
-                <div className={styles.dirPath}>{dir}</div>
+                <div className={styles.dirName}>{getDirName(entry.path)}</div>
+                <div className={styles.dirPath}>{entry.path}</div>
               </Flexbox>
               {isActive ? (
                 <Icon
@@ -205,7 +192,7 @@ const WorkingDirectoryContent = memo<WorkingDirectoryContentProps>(({ agentId, o
                 <div
                   className={styles.removeBtn}
                   title={t('localSystem.workingDirectory.removeRecent')}
-                  onClick={(e) => handleRemoveRecent(e, dir)}
+                  onClick={(e) => handleRemoveRecent(e, entry.path)}
                 >
                   <Icon icon={XIcon} size={12} />
                 </div>
