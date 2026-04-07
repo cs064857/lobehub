@@ -221,13 +221,23 @@ export class TreeActionImpl {
       draft.children[toParent] = sortTreeItems([...(draft.children[toParent] ?? []), item]);
     });
 
-    tx.mutation = () => resourceService.moveResource(itemId, toParent || null);
+    tx.mutation = async () => {
+      const { useFileStore } = await import('@/store/file');
+      const { resourceMap } = useFileStore.getState();
+
+      if (resourceMap.has(itemId)) {
+        // Item visible in Explorer → delegate (handles optimistic Explorer update + API)
+        await useFileStore.getState().moveResource(itemId, toParent || null);
+      } else {
+        // Item not in Explorer → API only, then refresh Explorer
+        await resourceService.moveResource(itemId, toParent || null);
+        await useFileStore.getState().refreshFileList();
+      }
+    };
 
     tx.onSuccess = async () => {
       await engine.flush();
       void Promise.all([this.revalidate(fromParent), this.revalidate(toParent)]);
-      const { revalidateResources } = await import('@/store/file/slices/resource/hooks');
-      await revalidateResources();
     };
 
     await tx.commit();
@@ -249,14 +259,36 @@ export class TreeActionImpl {
       draft.children[toParent] = sortTreeItems([...(draft.children[toParent] ?? []), ...items]);
     });
 
-    tx.mutation = () =>
-      Promise.all(itemIds.map((id) => resourceService.moveResource(id, toParent || null)));
+    tx.mutation = async () => {
+      const { useFileStore } = await import('@/store/file');
+      const { resourceMap } = useFileStore.getState();
+
+      // Split items into those visible in Explorer vs not
+      const inExplorer = itemIds.filter((id) => resourceMap.has(id));
+      const notInExplorer = itemIds.filter((id) => !resourceMap.has(id));
+
+      const promises: Promise<unknown>[] = [];
+
+      // Items in Explorer → delegate to file store (optimistic update + API)
+      for (const id of inExplorer) {
+        promises.push(useFileStore.getState().moveResource(id, toParent || null));
+      }
+
+      // Items not in Explorer → API only
+      for (const id of notInExplorer) {
+        promises.push(resourceService.moveResource(id, toParent || null));
+      }
+
+      await Promise.all(promises);
+
+      if (notInExplorer.length > 0) {
+        await useFileStore.getState().refreshFileList();
+      }
+    };
 
     tx.onSuccess = async () => {
       await engine.flush();
       void Promise.all([this.revalidate(fromParent), this.revalidate(toParent)]);
-      const { revalidateResources } = await import('@/store/file/slices/resource/hooks');
-      await revalidateResources();
     };
 
     await tx.commit();
@@ -273,13 +305,15 @@ export class TreeActionImpl {
       if (idx !== -1) list[idx] = { ...list[idx], name: newName };
     });
 
-    tx.mutation = () => resourceService.updateResource(itemId, { name: newName });
+    tx.mutation = async () => {
+      await resourceService.updateResource(itemId, { name: newName });
+      const { useFileStore } = await import('@/store/file');
+      await useFileStore.getState().refreshFileList();
+    };
 
     tx.onSuccess = async () => {
       await engine.flush();
       void this.revalidate(parentId);
-      const { revalidateResources } = await import('@/store/file/slices/resource/hooks');
-      await revalidateResources();
     };
 
     await tx.commit();
@@ -294,7 +328,11 @@ export class TreeActionImpl {
       draft.children[parentId] = (draft.children[parentId] ?? []).filter((i) => !idsSet.has(i.id));
     });
 
-    tx.mutation = () => resourceService.deleteResources(itemIds);
+    tx.mutation = async () => {
+      await resourceService.deleteResources(itemIds);
+      const { useFileStore } = await import('@/store/file');
+      await useFileStore.getState().refreshFileList();
+    };
 
     tx.onSuccess = async () => {
       await engine.flush();
@@ -306,8 +344,6 @@ export class TreeActionImpl {
       }
       this.#set({ children, expanded }, false, 'tree/removeItems/cleanup');
       void this.revalidate(parentId);
-      const { revalidateResources } = await import('@/store/file/slices/resource/hooks');
-      await revalidateResources();
     };
 
     await tx.commit();
